@@ -34,17 +34,19 @@ def optimize_placement_circular(items: List[Dict[str, Any]], disk_diameter: floa
     placed = []
     unplaced = []
 
-    # rectpack outputs bins -> rects
-    for abin in packer.bin_list():
-        for rect in abin:
-            x, y = rect.x, rect.y
-            w, h = rect.width, rect.height
-            fid = rect.rid
-            # Verify rectangle inside circle
-            if is_rect_inside_circle(x, y, w, h, cx, cy, r):
-                placed.append({"file_id": fid, "x": float(x), "y": float(y), "angle": 0, "w": float(w), "h": float(h)})
-            else:
-                unplaced.append({"file_id": fid, "reason": "outside_circle_after_rectpack"})
+    # rectpack provides a rect_list; handle either (x,y,w,h,rid) or (bin_index,x,y,w,h,rid)
+    rects = packer.rect_list()
+    for rect in rects:
+        # Unpack flexibly depending on rectpack version
+        if len(rect) == 6:
+            _, x, y, w, h, fid = rect
+        else:
+            x, y, w, h, fid = rect
+        # Verify rectangle inside circle
+        if is_rect_inside_circle(x, y, w, h, cx, cy, r):
+            placed.append({"file_id": fid, "x": float(x), "y": float(y), "angle": 0, "w": float(w), "h": float(h)})
+        else:
+            unplaced.append({"file_id": fid, "reason": "outside_circle_after_rectpack"})
 
     # Any items not added to packer (due to size) should be marked unplaced
     packed_ids = {p["file_id"] for p in placed} | {u["file_id"] for u in unplaced}

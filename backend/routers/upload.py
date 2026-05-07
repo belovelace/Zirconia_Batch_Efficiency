@@ -7,7 +7,7 @@ from core.stl_parser import parse_stl
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
-# In-memory DB stub
+# In-memory DB stub (fallback). We'll persist to Postgres via SQLAlchemy when available.
 CASES = {}
 FILES = {}
 
@@ -23,7 +23,16 @@ async def upload_files(files: List[UploadFile] = File(...), disk_config: str = F
         raise HTTPException(status_code=400, detail="invalid disk_config JSON")
 
     case_id = str(uuid.uuid4())
-    CASES[case_id] = {"id": case_id, "disk_config": config, "files": []}
+    # Persist case + files to Postgres (if available) else keep in-memory
+    from backend import db, models
+    try:
+        # create tables if not present
+        models.metadata.create_all(db.engine)
+        with db.SessionLocal() as session:
+            session.execute(models.cases.insert().values(id=case_id, disk_config=config))
+            session.commit()
+    except Exception:
+        CASES[case_id] = {"id": case_id, "disk_config": config, "files": []}
 
     # Save uploads to a temp folder and parse
     tmpdir = os.path.join("/tmp", "zirsave_uploads")
@@ -40,6 +49,13 @@ async def upload_files(files: List[UploadFile] = File(...), disk_config: str = F
         file_id = str(uuid.uuid4())
         file_rec = {"id": file_id, "filename": up.filename, "path": path, "bbox_w": parsed["width"], "bbox_h": parsed["height"], "depth": parsed["depth"], "feasible": parsed["feasible"]}
         FILES[file_id] = file_rec
-        CASES[case_id]["files"].append(file_rec)
+        # try to persist file record
+        try:
+            with db.SessionLocal() as session:
+                session.execute(models.files.insert().values(id=file_id, case_id=case_id, filename=up.filename, path=path, bbox_w=parsed["width"], bbox_h=parsed["height"], depth=parsed["depth"], feasible=int(parsed["feasible"])))
+                session.commit()
+        except Exception:
+            if case_id in CASES:
+                CASES[case_id]["files"].append(file_rec)
 
-    return {"case_id": case_id, "n_files": len(CASES[case_id]["files"])}
+    return {"case_id": case_id, "n_files": len(FILES)}

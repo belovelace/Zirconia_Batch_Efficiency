@@ -4,6 +4,7 @@ import uuid
 import json
 import os
 from core.stl_parser import parse_stl
+from backend.utils import log_exception
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -18,6 +19,12 @@ async def upload_files(files: List[UploadFile] = File(...), disk_config: str = F
     disk_config: JSON string or omitted — disk_diameter and thickness may be provided.
     """
     import traceback
+    # simple entry log to help debug server-side exceptions
+    try:
+        with open('upload_debug.log', 'a', encoding='utf-8') as fh:
+            fh.write('upload_files called\n')
+    except Exception:
+        pass
     try:
         try:
             config = json.loads(disk_config) if disk_config else {"diameter": 98.0, "thickness": 20.0}
@@ -25,6 +32,11 @@ async def upload_files(files: List[UploadFile] = File(...), disk_config: str = F
             raise HTTPException(status_code=400, detail="invalid disk_config JSON")
 
         case_id = str(uuid.uuid4())
+        try:
+            with open('upload_debug.log', 'a', encoding='utf-8') as fh:
+                fh.write(f'created case_id={case_id}\n')
+        except Exception:
+            pass
         # Persist case + files to Postgres (if available) else keep in-memory
         from backend import db, models
         try:
@@ -79,7 +91,6 @@ async def upload_files(files: List[UploadFile] = File(...), disk_config: str = F
 
         return {"case_id": case_id, "n_files": len(FILES)}
     except Exception as exc:
-        tb = traceback.format_exc()
-        with open("uvicorn_error.log", "a", encoding="utf-8") as fh:
-            fh.write(tb + "\n")
-        raise HTTPException(status_code=500, detail="internal server error")
+        # Log exception and return opaque error id to client
+        err_id = log_exception(exc)
+        raise HTTPException(status_code=500, detail=f"internal server error (id={err_id})")

@@ -3,6 +3,7 @@ from typing import Dict
 from core.bin_packing import optimize_placement_circular
 from core.waste_calc import compute_waste_rate
 import uuid
+from backend.utils import log_exception
 
 router = APIRouter(prefix="/optimize", tags=["optimize"])
 
@@ -44,23 +45,27 @@ async def optimize(case_id: str):
                 continue
             items.append({"file_id": f["id"], "w": f["bbox_w"], "h": f["bbox_h"]})
 
-    placement = optimize_placement_circular(items, disk_diameter=diameter)
-
-    # compute simple waste rate
-    placed_items = placement.get("disks", [])[0].get("items", []) if placement.get("disks") else []
-    waste_rate = compute_waste_rate(placed_items, diameter)
-
-    result_id = str(uuid.uuid4())
-
-    # persist result if possible
     try:
-        with db.SessionLocal() as session:
-            session.execute(models.results.insert().values(id=result_id, case_id=case_id, placement=placement, waste_rate=waste_rate, n_disks=len(placement.get("disks", []))))
-            session.commit()
-    except Exception:
-        RESULTS[result_id] = {"id": result_id, "case_id": case_id, "placement": placement, "waste_rate": waste_rate}
+        placement = optimize_placement_circular(items, disk_diameter=diameter)
 
-    return {"result_id": result_id, "waste_rate": waste_rate, "n_disks": len(placement.get("disks", []))}
+        # compute simple waste rate
+        placed_items = placement.get("disks", [])[0].get("items", []) if placement.get("disks") else []
+        waste_rate = compute_waste_rate(placed_items, diameter)
+
+        result_id = str(uuid.uuid4())
+
+        # persist result if possible
+        try:
+            with db.SessionLocal() as session:
+                session.execute(models.results.insert().values(id=result_id, case_id=case_id, placement=placement, waste_rate=waste_rate, n_disks=len(placement.get("disks", []))))
+                session.commit()
+        except Exception:
+            RESULTS[result_id] = {"id": result_id, "case_id": case_id, "placement": placement, "waste_rate": waste_rate}
+
+        return {"result_id": result_id, "waste_rate": waste_rate, "n_disks": len(placement.get("disks", []))}
+    except Exception as exc:
+        err_id = log_exception(exc)
+        raise HTTPException(status_code=500, detail=f"internal server error (id={err_id})")
 
 @router.get("/result/{result_id}")
 async def get_result(result_id: str):

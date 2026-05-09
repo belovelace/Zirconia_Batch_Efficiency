@@ -48,9 +48,12 @@ async def optimize(case_id: str):
     try:
         placement = optimize_placement_circular(items, disk_diameter=diameter)
 
-        # compute simple waste rate
-        placed_items = placement.get("disks", [])[0].get("items", []) if placement.get("disks") else []
-        waste_rate = compute_waste_rate(placed_items, diameter)
+        # aggregate placed items across all disks for waste calculation
+        all_placed = []
+        for disk in placement.get("disks", []):
+            all_placed.extend(disk.get("items", []))
+        n_disks = len(placement.get("disks", []))
+        waste_rate = compute_waste_rate(all_placed, diameter, n_disks=n_disks)
 
         result_id = str(uuid.uuid4())
 

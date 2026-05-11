@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 from backend.routers import upload, optimize
+from backend.routers import visualize
+from fastapi import FastAPI
 
 app = FastAPI(title="ZirSave API", debug=True)
 app.include_router(upload.router)
 app.include_router(optimize.router)
+app.include_router(visualize.router)
 
 # Start log shipper at startup if configured
 from backend.log_shipper import start_shipper, stop_shipper

@@ -7,15 +7,13 @@ from backend.utils import log_exception
 
 router = APIRouter(prefix="/optimize", tags=["optimize"])
 
-# Simple in-memory results store
 RESULTS: Dict[str, Dict] = {}
 
-# Import the in-memory CASES/FILES from upload module
 from backend.routers import upload as upload_module
 
-@router.post("/")
-async def optimize(case_id: str):
-    # Try to load case from Postgres first
+
+def _load_case(case_id: str):
+    """Load disk_config + feasible items for a case. Returns (disk_config, items)."""
     from backend import db, models
     try:
         with db.SessionLocal() as session:
@@ -23,66 +21,145 @@ async def optimize(case_id: str):
             if not row:
                 raise HTTPException(status_code=404, detail="case not found")
             disk_config = row._mapping.get("disk_config") or {}
-            diameter = float(disk_config.get("diameter", 98.0))
-            # load files
             rows = session.execute(models.files.select().where(models.files.c.case_id == case_id)).all()
             items = []
             for r in rows:
-                mapping = r._mapping
-                if not mapping.get("feasible", 1):
+                m = r._mapping
+                if not m.get("feasible", 1):
                     continue
-                items.append({"file_id": mapping.get("id"), "w": mapping.get("bbox_w"), "h": mapping.get("bbox_h")})
+                items.append({"file_id": m.get("id"), "w": m.get("bbox_w"), "h": m.get("bbox_h")})
+            return disk_config, items
+    except HTTPException:
+        raise
     except Exception:
-        # fallback to in-memory
-        case = upload_module.CASES.get(case_id)
-        if case is None:
-            raise HTTPException(status_code=404, detail="case not found")
-        disk_config = case.get("disk_config", {})
-        diameter = float(disk_config.get("diameter", 98.0))
-        items = []
-        for f in case.get("files", []):
-            if not f.get("feasible", True):
-                continue
-            items.append({"file_id": f["id"], "w": f["bbox_w"], "h": f["bbox_h"]})
+        pass
 
+    # fallback to in-memory
+    case = upload_module.CASES.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    disk_config = case.get("disk_config", {})
+    items = [
+        {"file_id": f["id"], "w": f["bbox_w"], "h": f["bbox_h"]}
+        for f in case.get("files", [])
+        if f.get("feasible", True)
+    ]
+    return disk_config, items
+
+
+def _save_result(result_id: str, case_id: str, placement: dict, saving_rate: float,
+                 shrinkage_factor: float, diameter: float, item_count: int):
+    from backend import db, models
     try:
-        placement = optimize_placement_circular(items, disk_diameter=diameter)
+        with db.SessionLocal() as session:
+            session.execute(models.results.insert().values(
+                id=result_id, case_id=case_id, placement=placement,
+                waste_rate=None, n_disks=len(placement.get("disks", []))
+            ))
+            session.commit()
+    except Exception:
+        pass
+    RESULTS[result_id] = {
+        "id": result_id,
+        "case_id": case_id,
+        "placement": placement,
+        "disk_saving_rate": saving_rate,
+        "shrinkage_factor": shrinkage_factor,
+        "disk_diameter": diameter,
+        "item_count": item_count,
+    }
 
-        # compute per-disk utilizations
+
+@router.post("/")
+async def optimize(case_id: str):
+    try:
+        disk_config, items = _load_case(case_id)
+        diameter = float(disk_config.get("diameter", 98.0))
+        shrinkage_factor = float(disk_config.get("shrinkage_factor", 1.25))
+
+        placement = optimize_placement_circular(
+            items, disk_diameter=diameter, shrinkage_factor=shrinkage_factor
+        )
+
         disks = placement.get("disks", [])
         utilizations = []
         for d in disks:
-            utilis = compute_disk_utilization(d.get("placed", d.get("items", [])), diameter)
-            d["disk_utilization"] = utilis
-            utilizations.append(utilis)
+            u = compute_disk_utilization(d.get("placed", []), diameter)
+            d["disk_utilization"] = u
+            utilizations.append(u)
 
-        optimized_disk_count = len(disks)
-        # naive_disk_count uses number of feasible items in the case (count of files)
-        # If DB path, count rows; else fall back to in-memory case
-        try:
-            # try to load from DB
-            rows = session.execute(models.files.select().where(models.files.c.case_id == case_id)).all()
-            naive_count = len(rows) if rows else 0
-        except Exception:
-            # fallback to in-memory
-            case = upload_module.CASES.get(case_id, {})
-            naive_count = len(case.get("files", []))
-
-        saving_rate = compute_disk_saving_rate(naive_count, optimized_disk_count)
+        naive_count = len(items)
+        saving_rate = compute_disk_saving_rate(naive_count, len(disks))
         result_id = str(uuid.uuid4())
+        _save_result(result_id, case_id, placement, saving_rate, shrinkage_factor, diameter, naive_count)
 
-        # persist result if possible
-        try:
-            with db.SessionLocal() as session:
-                session.execute(models.results.insert().values(id=result_id, case_id=case_id, placement=placement, waste_rate=None, n_disks=len(placement.get("disks", []))))
-                session.commit()
-        except Exception:
-            RESULTS[result_id] = {"id": result_id, "case_id": case_id, "placement": placement, "disk_saving_rate": saving_rate}
-
-        return {"result_id": result_id, "disk_saving_rate": saving_rate, "n_disks": len(placement.get("disks", [])), "utilizations": utilizations}
+        return {
+            "result_id": result_id,
+            "disk_saving_rate": saving_rate,
+            "n_disks": len(disks),
+            "utilizations": utilizations,
+            "shrinkage_factor": shrinkage_factor,
+        }
+    except HTTPException:
+        raise
     except Exception as exc:
         err_id = log_exception(exc)
         raise HTTPException(status_code=500, detail=f"internal server error (id={err_id})")
+
+
+@router.post("/incremental")
+async def optimize_incremental(result_id: str, new_case_id: str):
+    """
+    Add new STL files (new_case_id) onto the disks from an existing result (result_id).
+    Items are placed into already-used disks first; new disks are opened only if needed.
+    Returns a new result_id with the merged placement.
+    """
+    try:
+        existing = RESULTS.get(result_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="existing result not found")
+
+        existing_placement = existing.get("placement", {})
+        initial_placements = existing_placement.get("disks", [])
+        diameter = float(existing.get("disk_diameter", existing_placement.get("disk_diameter", 98.0)))
+        shrinkage_factor = float(existing.get("shrinkage_factor", existing_placement.get("shrinkage_factor", 1.25)))
+        prev_item_count = int(existing.get("item_count", 0))
+
+        disk_config, new_items = _load_case(new_case_id)
+
+        placement = optimize_placement_circular(
+            new_items,
+            disk_diameter=diameter,
+            shrinkage_factor=shrinkage_factor,
+            initial_placements=initial_placements,
+        )
+
+        disks = placement.get("disks", [])
+        utilizations = []
+        for d in disks:
+            u = compute_disk_utilization(d.get("placed", []), diameter)
+            d["disk_utilization"] = u
+            utilizations.append(u)
+
+        total_items = prev_item_count + len(new_items)
+        saving_rate = compute_disk_saving_rate(total_items, len(disks))
+        new_result_id = str(uuid.uuid4())
+        _save_result(new_result_id, new_case_id, placement, saving_rate, shrinkage_factor, diameter, total_items)
+
+        return {
+            "result_id": new_result_id,
+            "disk_saving_rate": saving_rate,
+            "n_disks": len(disks),
+            "utilizations": utilizations,
+            "shrinkage_factor": shrinkage_factor,
+            "total_items": total_items,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        err_id = log_exception(exc)
+        raise HTTPException(status_code=500, detail=f"internal server error (id={err_id})")
+
 
 @router.get("/result/{result_id}")
 async def get_result(result_id: str):

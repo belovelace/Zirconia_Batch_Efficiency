@@ -3,211 +3,383 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ZirSave Demo</title>
+  <title>ZirSave — 지르코니아 배치 최적화</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial; margin: 24px; color:#111; background:#f7f8fb; }
-    .container { max-width: 980px; margin: 0 auto; }
-    h1 { margin: 0 0 12px; font-size: 20px; }
-    .panel { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(20,30,60,0.06); margin-bottom: 16px; }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    label { display:block; font-size:13px; color:#333; margin-bottom:6px; }
-    input[type="number"], select { width: 110px; padding:8px; border:1px solid #e1e6f0; border-radius:6px; background:#fbfcff; }
-    .controls { margin-top:12px; }
-    button { background:#2463ff; color:white; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-weight:600; }
-    button:disabled { opacity:0.6; cursor:not-allowed; }
-    .big { font-size:28px; font-weight:700; color:#0b3a84; }
-    .compare { display:flex; gap:20px; align-items:center; margin-top:12px; }
-    .compare .card { background:#f2f6ff; padding:12px 16px; border-radius:8px; min-width:160px; text-align:center; }
-    img#viz { max-width:100%; border-radius:8px; margin-top:12px; border:1px solid #e6eefc; }
-    .small { font-size:13px; color:#556; margin-top:6px; }
-    .status { margin-top:10px; font-size:13px; color:#666; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Noto Sans KR", Arial, sans-serif;
+           margin: 0; background: #f0f4fb; color: #111; }
+    header { background: #1a3a6b; color: #fff; padding: 14px 24px;
+             display: flex; align-items: center; gap: 10px; }
+    header h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    header span { font-size: 13px; opacity: 0.75; }
+    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 18px 20px;
+            box-shadow: 0 1px 4px rgba(20,40,80,0.08); margin-bottom: 16px; }
+    .card h2 { margin: 0 0 14px; font-size: 15px; color: #1a3a6b; border-bottom: 1px solid #e4eaf5; padding-bottom: 8px; }
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+    label { font-size: 13px; color: #445; display: block; margin-bottom: 4px; }
+    input[type="number"], select { padding: 8px 10px; border: 1px solid #d0d8ec;
+      border-radius: 6px; background: #f7f9ff; font-size: 13px; width: 130px; }
+    .upload-zone { border: 2px dashed #99b3e0; border-radius: 8px; padding: 22px 16px;
+      text-align: center; color: #557; cursor: pointer; transition: background .15s; }
+    .upload-zone:hover, .upload-zone.drag { background: #eef3ff; border-color: #3366cc; }
+    .upload-zone input { display: none; }
+    .upload-zone .hint { font-size: 12px; margin-top: 6px; color: #7890b0; }
+    #fileList, #addFileList { font-size: 12px; color: #445; margin-top: 8px; min-height: 18px; }
+    .btn { background: #1a3a6b; color: #fff; border: none; padding: 10px 18px;
+           border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px;
+           transition: background .15s; }
+    .btn:hover { background: #2455a0; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: #e8eefc; color: #1a3a6b; }
+    .btn-secondary:hover { background: #d0ddf7; }
+    .status { font-size: 13px; color: #668; margin-left: 10px; }
+    .metrics { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .metric-card { background: #f2f6ff; border-radius: 8px; padding: 12px 18px;
+                   min-width: 140px; text-align: center; flex: 1; }
+    .metric-val { font-size: 26px; font-weight: 800; color: #1a3a6b; }
+    .metric-lbl { font-size: 11px; color: #667; margin-top: 3px; }
+    .util-list { font-size: 13px; color: #556; }
+    .util-list li { margin-bottom: 3px; }
+    img#viz, img#addViz { max-width: 100%; border-radius: 8px; border: 1px solid #d8e4f5; margin-top: 12px; }
+    .badge { display: inline-block; background: #ddeeff; color: #1a3a6b;
+             font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 6px; }
+    .result-id { font-size: 11px; color: #99b; margin-top: 6px; word-break: break-all; }
+    details summary { cursor: pointer; font-size: 13px; color: #445; user-select: none;
+                      padding: 4px 0; }
+    .shrinkage-note { font-size: 11px; color: #778; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>ZirSave — Demo (간단한 배치 시뮬레이터)</h1>
+<header>
+  <h1>ZirSave</h1>
+  <span>지르코니아 디스크 배치 최적화</span>
+</header>
 
-    <div class="panel" id="inputPanel">
-      <h2 style="font-size:16px;margin-bottom:8px">입력</h2>
+<div class="container">
 
-      <div style="display:flex; gap:16px; flex-wrap:wrap;">
-        <div>
-          <label>전치부 크라운 (8×10 mm) 개수</label>
-          <input id="countAnterior" type="number" value="3" min="0"/>
-        </div>
-
-        <div>
-          <label>소구치 크라운 (10×12 mm) 개수</label>
-          <input id="countPremolar" type="number" value="3" min="0"/>
-        </div>
-
-        <div>
-          <label>대구치 크라운 (12×14 mm) 개수</label>
-          <input id="countMolar" type="number" value="3" min="0"/>
-        </div>
-
-        <div>
-          <label>브릿지 유닛 (14×16 mm) 개수</label>
-          <input id="countBridge" type="number" value="1" min="0"/>
-        </div>
-
-        <div>
-          <label>디스크 직경 (mm)</label>
-          <select id="diskDiameter">
-            <option value="98" selected>98 mm (default)</option>
-            <option value="90">90 mm</option>
-            <option value="80">80 mm</option>
-          </select>
-        </div>
+  <!-- 1. Disk config -->
+  <div class="card">
+    <h2>1. 디스크 설정</h2>
+    <div class="row">
+      <div>
+        <label>디스크 직경 (mm)</label>
+        <select id="diskDiameter">
+          <option value="98" selected>98 mm (default)</option>
+          <option value="90">90 mm</option>
+          <option value="80">80 mm</option>
+          <option value="71">71 mm</option>
+        </select>
       </div>
-
-      <div class="controls">
-        <button id="runBtn">최적 배치 계산</button>
-        <span class="status" id="status">준비됨</span>
-      </div>
-
-      <p class="small">설명: 데모는 서버의 /upload와 /optimize, /results/{id}/visualization 엔드포인트와 통신합니다.</p>
-    </div>
-
-    <div class="panel" id="resultPanel" style="display:none">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <div class="big" id="savingPct">--%</div>
-          <div class="small">디스크 절감률 (disk_saving_rate)</div>
-        </div>
-        <div class="compare">
-          <div class="card">
-            <div style="font-size:22px;font-weight:700" id="naiveCount">--</div>
-            <div style="font-size:12px;color:#445">기존 방식 (1 item / disk)</div>
-          </div>
-          <div class="card">
-            <div style="font-size:22px;font-weight:700" id="optCount">--</div>
-            <div style="font-size:12px;color:#445">ZirSave 사용 디스크</div>
-          </div>
-        </div>
-      </div>
-
-      <div id="vizWrap" style="margin-top:14px;">
-        <img id="viz" alt="visualization will appear here" src="" />
-      </div>
-
-      <div style="margin-top:10px;">
-        <div class="small">디스크별 활용률 (disk utilization):</div>
-        <ul id="utilList" class="small"></ul>
+      <div>
+        <label>수축 보정 계수 <span class="badge">소결 수축</span></label>
+        <input type="number" id="shrinkage" value="1.25" min="1.0" max="1.5" step="0.01" />
+        <div class="shrinkage-note">밀링 치수 = 설계 치수 × 계수 (지르코니아 기본값 1.25)</div>
       </div>
     </div>
   </div>
 
-  <script>
-    (function(){
-      const runBtn = document.getElementById('runBtn');
-      const status = document.getElementById('status');
-      const resultPanel = document.getElementById('resultPanel');
-      const savingPct = document.getElementById('savingPct');
-      const naiveCountField = document.getElementById('naiveCount');
-      const optCountField = document.getElementById('optCount');
-      const vizImg = document.getElementById('viz');
-      const utilList = document.getElementById('utilList');
+  <!-- 2. STL Upload -->
+  <div class="card">
+    <h2>2. STL 파일 업로드</h2>
+    <div class="upload-zone" id="dropZone" onclick="document.getElementById('stlFiles').click()">
+      <div>📂 STL 파일을 드래그하거나 클릭하여 선택</div>
+      <div class="hint">여러 파일 동시 선택 가능 (.stl)</div>
+      <input type="file" id="stlFiles" accept=".stl" multiple />
+    </div>
+    <div id="fileList">선택된 파일 없음</div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="runBtn" disabled>배치 계산</button>
+      <span class="status" id="status"></span>
+    </div>
+  </div>
 
-      function buildItems(an, pm, mo, br) {
-        const items = [];
-        for (let i=0;i<an;i++) items.push({item_id:'anterior_'+i, w:8.0, h:10.0});
-        for (let i=0;i<pm;i++) items.push({item_id:'premolar_'+i, w:10.0, h:12.0});
-        for (let i=0;i<mo;i++) items.push({item_id:'molar_'+i, w:12.0, h:14.0});
-        for (let i=0;i<br;i++) items.push({item_id:'bridge_'+i, w:14.0, h:16.0});
-        return items;
-      }
+  <!-- 3. Results -->
+  <div class="card" id="resultPanel" style="display:none">
+    <h2>3. 배치 결과</h2>
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="metric-val" id="savingPct">--</div>
+        <div class="metric-lbl">디스크 절감률</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" id="naiveCount">--</div>
+        <div class="metric-lbl">기존 방식 (1개/디스크)</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" id="optCount">--</div>
+        <div class="metric-lbl">ZirSave 사용 디스크</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" id="shrinkageUsed">--</div>
+        <div class="metric-lbl">적용 수축 계수</div>
+      </div>
+    </div>
+    <details open>
+      <summary>디스크별 활용률</summary>
+      <ul class="util-list" id="utilList"></ul>
+    </details>
+    <img id="viz" alt="시각화 이미지" />
+    <div class="result-id" id="resultIdLabel"></div>
+  </div>
 
-      async function postJson(url, obj) {
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(obj),
-        });
-        if (!resp.ok) throw new Error('HTTP '+resp.status+' '+await resp.text());
-        return resp.json();
-      }
+  <!-- 4. Incremental: add more STL to existing disks -->
+  <div class="card" id="addPanel" style="display:none">
+    <h2>4. 기존 디스크에 추가 배치 <span class="badge">Incremental</span></h2>
+    <p style="font-size:13px;color:#556;margin-top:0">
+      위 결과의 디스크에 남은 공간이 있으면 새 STL 파일을 먼저 기존 디스크에 배치하고,
+      공간이 부족하면 자동으로 새 디스크를 추가합니다.
+    </p>
+    <div class="upload-zone" id="addDropZone" onclick="document.getElementById('addStlFiles').click()">
+      <div>📂 추가할 STL 파일 선택</div>
+      <div class="hint">기존 디스크 여유 공간에 우선 배치됩니다</div>
+      <input type="file" id="addStlFiles" accept=".stl" multiple />
+    </div>
+    <div id="addFileList">선택된 파일 없음</div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn btn-secondary" id="addBtn" disabled>추가 배치 계산</button>
+      <span class="status" id="addStatus"></span>
+    </div>
+    <div id="addResultSection" style="display:none; margin-top:16px">
+      <div class="metrics">
+        <div class="metric-card">
+          <div class="metric-val" id="addSavingPct">--</div>
+          <div class="metric-lbl">전체 절감률 (누적)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-val" id="addOptCount">--</div>
+          <div class="metric-lbl">총 사용 디스크</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-val" id="addTotalItems">--</div>
+          <div class="metric-lbl">총 배치 아이템</div>
+        </div>
+      </div>
+      <details open>
+        <summary>디스크별 활용률 (추가 후)</summary>
+        <ul class="util-list" id="addUtilList"></ul>
+      </details>
+      <img id="addViz" alt="추가 배치 시각화" />
+      <div class="result-id" id="addResultIdLabel"></div>
+    </div>
+  </div>
 
-      runBtn.addEventListener('click', async () => {
-        runBtn.disabled = true;
-        status.textContent = '작업중…';
-        resultPanel.style.display = 'none';
-        vizImg.src = '';
-        utilList.innerHTML = '';
+</div><!-- /container -->
 
-        try {
-          // gather inputs
-          const an = parseInt(document.getElementById('countAnterior').value || '0', 10);
-          const pm = parseInt(document.getElementById('countPremolar').value || '0', 10);
-          const mo = parseInt(document.getElementById('countMolar').value || '0', 10);
-          const br = parseInt(document.getElementById('countBridge').value || '0', 10);
-          const disk = parseFloat(document.getElementById('diskDiameter').value || '98');
+<script>
+(function () {
+  const runBtn = document.getElementById('runBtn');
+  const addBtn = document.getElementById('addBtn');
+  const statusEl = document.getElementById('status');
+  const addStatusEl = document.getElementById('addStatus');
+  const resultPanel = document.getElementById('resultPanel');
+  const addPanel = document.getElementById('addPanel');
 
-          const items = buildItems(an, pm, mo, br);
-          const naiveCount = items.length;
+  let currentResultId = null;
+  let currentNaiveCount = 0;
 
-          // Send to /upload as JSON disk_config for demo
-          // Server must accept JSON disk_config; if your backend requires multipart FormData, switch to that.
-          const diskConfig = { diameter: disk, thickness: 20.0, demo_items: items };
+  // ── Drag-and-drop helpers ──────────────────────────────────────────────────
+  function setupDrop(zone, input, listEl) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('drag');
+      input.files = e.dataTransfer.files;
+      updateFileList(input, listEl);
+    });
+    input.addEventListener('change', () => updateFileList(input, listEl));
+  }
 
-          // 1) POST /upload -> expect { case_id: "...", n_files: N } or JSON with case_id
-          status.textContent = '업로드 중… (서버로 디스크 설정 전송)';
-          const uploadResp = await postJson('/upload', { disk_config: diskConfig, demo: true });
-          const caseId = uploadResp.case_id || uploadResp.id || uploadResp.case || null;
-          if (!caseId) {
-            // try fallback if server returned different shape
-            throw new Error('upload did not return case_id: ' + JSON.stringify(uploadResp));
-          }
+  function updateFileList(input, listEl) {
+    const files = Array.from(input.files);
+    if (!files.length) { listEl.textContent = '선택된 파일 없음'; return; }
+    listEl.textContent = files.map(f => `${f.name} (${(f.size/1024).toFixed(1)} KB)`).join(' · ');
+    runBtn.disabled = false;
+  }
 
-          // 2) POST /optimize?case_id=...  -> returns result_id and disk_saving_rate, utilizations
-          status.textContent = '최적화 실행 중…';
-          const optRespFetch = await fetch('/optimize?case_id=' + encodeURIComponent(caseId), { method: 'POST' });
-          if (!optRespFetch.ok) throw new Error('optimize failed: ' + optRespFetch.status);
-          const optResp = await optRespFetch.json();
+  function updateAddFileList(input, listEl) {
+    const files = Array.from(input.files);
+    if (!files.length) { listEl.textContent = '선택된 파일 없음'; return; }
+    listEl.textContent = files.map(f => `${f.name} (${(f.size/1024).toFixed(1)} KB)`).join(' · ');
+    addBtn.disabled = false;
+  }
 
-          // optResp expected keys: result_id or disk_saving_rate, n_disks, utilizations
-          const resultId = optResp.result_id || optResp.result || optResp.id || optResp.case_id || null;
-          const saving = (typeof optResp.disk_saving_rate !== 'undefined') ? optResp.disk_saving_rate : (typeof optResp.saving !== 'undefined' ? optResp.saving : null);
-          const nDisks = (typeof optResp.n_disks !== 'undefined') ? optResp.n_disks : (optResp.utilizations ? optResp.utilizations.length : null);
-          const utils = (typeof optResp.utilizations !== 'undefined') ? optResp.utilizations : (optResp.util || []);
+  setupDrop(
+    document.getElementById('dropZone'),
+    document.getElementById('stlFiles'),
+    document.getElementById('fileList')
+  );
 
-          // update UI
-          resultPanel.style.display = 'block';
-          savingPct.textContent = (saving !== null) ? Math.round(saving*100) + '% 절감' : '--';
-          naiveCountField.textContent = naiveCount;
-          optCountField.textContent = (typeof nDisks !== 'undefined' && nDisks !== null) ? nDisks : '--';
-          utilList.innerHTML = '';
-          if (utils && utils.length) {
-            for (var i = 0; i < utils.length; i++) {
-              var u = utils[i];
-              var li = document.createElement('li');
-              li.textContent = 'Disk ' + i + ': utilization ' + ( (u*100).toFixed(1) ) + '%';
-              utilList.appendChild(li);
-            }
-          }
+  document.getElementById('addStlFiles').addEventListener('change', () => {
+    updateAddFileList(document.getElementById('addStlFiles'), document.getElementById('addFileList'));
+  });
+  document.getElementById('addDropZone').addEventListener('dragover', e => {
+    e.preventDefault(); document.getElementById('addDropZone').classList.add('drag');
+  });
+  document.getElementById('addDropZone').addEventListener('dragleave', () =>
+    document.getElementById('addDropZone').classList.remove('drag'));
+  document.getElementById('addDropZone').addEventListener('drop', e => {
+    e.preventDefault();
+    document.getElementById('addDropZone').classList.remove('drag');
+    document.getElementById('addStlFiles').files = e.dataTransfer.files;
+    updateAddFileList(document.getElementById('addStlFiles'), document.getElementById('addFileList'));
+  });
 
-          // 3) fetch visualization image
-          // prefer result_id; if optimize returned result_id use that, otherwise use caseId
-          const vizId = resultId || caseId;
-          status.textContent = '시각화 로딩…';
-          const imgResp = await fetch('/results/' + encodeURIComponent(vizId) + '/visualization');
-          if (!imgResp.ok) {
-            throw new Error('visualization failed: ' + imgResp.status);
-          }
-          const blob = await imgResp.blob();
-          vizImg.src = URL.createObjectURL(blob);
+  // ── Upload STL files → returns case_id ────────────────────────────────────
+  async function uploadFiles(fileInput, diskConfig) {
+    const fd = new FormData();
+    for (const f of fileInput.files) fd.append('files', f);
+    fd.append('disk_config', JSON.stringify(diskConfig));
+    const resp = await fetch('/upload/', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error('업로드 실패: ' + resp.status + ' ' + await resp.text());
+    return resp.json();
+  }
 
-          status.textContent = '완료';
-        } catch (err) {
-          console.error(err);
-          status.textContent = '오류: ' + err.message;
-          alert('오류가 발생했습니다: ' + err.message + '\n콘솔을 확인하세요.');
-        } finally {
-          runBtn.disabled = false;
-        }
+  // ── Show metrics + visualization ──────────────────────────────────────────
+  function renderMetrics(data, naiveCount, vizEl, utilListEl) {
+    document.getElementById('savingPct').textContent =
+      data.disk_saving_rate != null ? Math.round(data.disk_saving_rate * 100) + '%' : '--';
+    document.getElementById('naiveCount').textContent = naiveCount;
+    document.getElementById('optCount').textContent = data.n_disks ?? '--';
+    document.getElementById('shrinkageUsed').textContent =
+      data.shrinkage_factor != null ? '×' + parseFloat(data.shrinkage_factor).toFixed(2) : '--';
+    utilListEl.innerHTML = '';
+    (data.utilizations || []).forEach((u, i) => {
+      const li = document.createElement('li');
+      li.textContent = `Disk ${i}: ${(u * 100).toFixed(1)}% 활용`;
+      utilListEl.appendChild(li);
+    });
+  }
+
+  async function fetchViz(resultId, imgEl) {
+    const r = await fetch(`/results/${encodeURIComponent(resultId)}/visualization`);
+    if (!r.ok) throw new Error('시각화 실패: ' + r.status);
+    const blob = await r.blob();
+    imgEl.src = URL.createObjectURL(blob);
+  }
+
+  // ── Main: upload + optimize ────────────────────────────────────────────────
+  runBtn.addEventListener('click', async () => {
+    const files = document.getElementById('stlFiles').files;
+    if (!files.length) { alert('STL 파일을 선택하세요.'); return; }
+
+    runBtn.disabled = true;
+    resultPanel.style.display = 'none';
+    addPanel.style.display = 'none';
+    statusEl.textContent = '';
+
+    const diskConfig = {
+      diameter: parseFloat(document.getElementById('diskDiameter').value),
+      thickness: 20.0,
+      shrinkage_factor: parseFloat(document.getElementById('shrinkage').value),
+    };
+
+    try {
+      statusEl.textContent = '업로드 중…';
+      const upResp = await uploadFiles(document.getElementById('stlFiles'), diskConfig);
+      const caseId = upResp.case_id;
+      if (!caseId) throw new Error('case_id 반환 안 됨: ' + JSON.stringify(upResp));
+      currentNaiveCount = upResp.n_files || files.length;
+
+      statusEl.textContent = '배치 최적화 중…';
+      const optResp = await fetch(`/optimize/?case_id=${encodeURIComponent(caseId)}`, { method: 'POST' });
+      if (!optResp.ok) throw new Error('최적화 실패: ' + optResp.status + ' ' + await optResp.text());
+      const optData = await optResp.json();
+
+      currentResultId = optData.result_id;
+
+      renderMetrics(optData, currentNaiveCount,
+        document.getElementById('viz'),
+        document.getElementById('utilList'));
+
+      statusEl.textContent = '시각화 로딩…';
+      await fetchViz(currentResultId, document.getElementById('viz'));
+
+      document.getElementById('resultIdLabel').textContent = 'result_id: ' + currentResultId;
+      resultPanel.style.display = 'block';
+
+      // Show incremental section
+      addPanel.style.display = 'block';
+      document.getElementById('addResultSection').style.display = 'none';
+      document.getElementById('addFileList').textContent = '선택된 파일 없음';
+      addBtn.disabled = true;
+
+      statusEl.textContent = '완료 ✓';
+    } catch (err) {
+      statusEl.textContent = '오류: ' + err.message;
+      console.error(err);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  // ── Incremental: add STL files to existing disks ──────────────────────────
+  addBtn.addEventListener('click', async () => {
+    if (!currentResultId) { alert('먼저 배치 계산을 실행하세요.'); return; }
+    const addFiles = document.getElementById('addStlFiles').files;
+    if (!addFiles.length) { alert('추가할 STL 파일을 선택하세요.'); return; }
+
+    addBtn.disabled = true;
+    addStatusEl.textContent = '';
+    document.getElementById('addResultSection').style.display = 'none';
+
+    const diskConfig = {
+      diameter: parseFloat(document.getElementById('diskDiameter').value),
+      thickness: 20.0,
+      shrinkage_factor: parseFloat(document.getElementById('shrinkage').value),
+    };
+
+    try {
+      addStatusEl.textContent = '추가 파일 업로드 중…';
+      const upResp = await uploadFiles(document.getElementById('addStlFiles'), diskConfig);
+      const newCaseId = upResp.case_id;
+      if (!newCaseId) throw new Error('case_id 반환 안 됨');
+
+      addStatusEl.textContent = '기존 디스크에 추가 배치 중…';
+      const incResp = await fetch(
+        `/optimize/incremental?result_id=${encodeURIComponent(currentResultId)}&new_case_id=${encodeURIComponent(newCaseId)}`,
+        { method: 'POST' }
+      );
+      if (!incResp.ok) throw new Error('추가 배치 실패: ' + incResp.status + ' ' + await incResp.text());
+      const incData = await incResp.json();
+
+      // Update current result id for further increments
+      currentResultId = incData.result_id;
+
+      document.getElementById('addSavingPct').textContent =
+        incData.disk_saving_rate != null ? Math.round(incData.disk_saving_rate * 100) + '%' : '--';
+      document.getElementById('addOptCount').textContent = incData.n_disks ?? '--';
+      document.getElementById('addTotalItems').textContent = incData.total_items ?? '--';
+
+      const addUtilList = document.getElementById('addUtilList');
+      addUtilList.innerHTML = '';
+      (incData.utilizations || []).forEach((u, i) => {
+        const li = document.createElement('li');
+        li.textContent = `Disk ${i}: ${(u * 100).toFixed(1)}% 활용`;
+        addUtilList.appendChild(li);
       });
 
-    })();
-  </script>
+      addStatusEl.textContent = '시각화 로딩…';
+      await fetchViz(currentResultId, document.getElementById('addViz'));
+
+      document.getElementById('addResultIdLabel').textContent = 'result_id: ' + currentResultId;
+      document.getElementById('addResultSection').style.display = 'block';
+      addStatusEl.textContent = '완료 ✓';
+
+      // Reset add form for another round
+      document.getElementById('addStlFiles').value = '';
+      document.getElementById('addFileList').textContent = '선택된 파일 없음';
+      addBtn.disabled = true;
+    } catch (err) {
+      addStatusEl.textContent = '오류: ' + err.message;
+      console.error(err);
+    } finally {
+      addBtn.disabled = false;
+    }
+  });
+
+})();
+</script>
 </body>
 </html>

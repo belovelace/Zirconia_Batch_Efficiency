@@ -5,6 +5,14 @@ from shapely.geometry import box, Point
 from shapely.affinity import rotate as shapely_rotate
 
 
+def is_rect_inside_circle(x: float, y: float, w: float, h: float,
+                          cx: float, cy: float, r: float, tol: float = 1e-9) -> bool:
+    """Return True if all four corners of the rectangle lie inside the circle."""
+    corners = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]
+    r2 = r * r + tol
+    return all((px - cx) ** 2 + (py - cy) ** 2 <= r2 for px, py in corners)
+
+
 def optimize_placement_circular(
     items: List[Dict[str, Any]],
     disk_diameter: float,

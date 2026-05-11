@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ZirSave Demo</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Arial; margin: 24px; color:#111; background:#f7f8fb; }
+    .container { max-width: 980px; margin: 0 auto; }
+    h1 { margin: 0 0 12px; font-size: 20px; }
+    .panel { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(20,30,60,0.06); margin-bottom: 16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    label { display:block; font-size:13px; color:#333; margin-bottom:6px; }
+    input[type="number"], select { width: 110px; padding:8px; border:1px solid #e1e6f0; border-radius:6px; background:#fbfcff; }
+    .controls { margin-top:12px; }
+    button { background:#2463ff; color:white; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-weight:600; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    .big { font-size:28px; font-weight:700; color:#0b3a84; }
+    .compare { display:flex; gap:20px; align-items:center; margin-top:12px; }
+    .compare .card { background:#f2f6ff; padding:12px 16px; border-radius:8px; min-width:160px; text-align:center; }
+    img#viz { max-width:100%; border-radius:8px; margin-top:12px; border:1px solid #e6eefc; }
+    .small { font-size:13px; color:#556; margin-top:6px; }
+    .status { margin-top:10px; font-size:13px; color:#666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ZirSave — Demo (간단한 배치 시뮬레이터)</h1>
+
+    <div class="panel" id="inputPanel">
+      <h2 style="font-size:16px;margin-bottom:8px">입력</h2>
+
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <div>
+          <label>전치부 크라운 (8×10 mm) 개수</label>
+          <input id="countAnterior" type="number" value="3" min="0"/>
+        </div>
+
+        <div>
+          <label>소구치 크라운 (10×12 mm) 개수</label>
+          <input id="countPremolar" type="number" value="3" min="0"/>
+        </div>
+
+        <div>
+          <label>대구치 크라운 (12×14 mm) 개수</label>
+          <input id="countMolar" type="number" value="3" min="0"/>
+        </div>
+
+        <div>
+          <label>브릿지 유닛 (14×16 mm) 개수</label>
+          <input id="countBridge" type="number" value="1" min="0"/>
+        </div>
+
+        <div>
+          <label>디스크 직경 (mm)</label>
+          <select id="diskDiameter">
+            <option value="98" selected>98 mm (default)</option>
+            <option value="90">90 mm</option>
+            <option value="80">80 mm</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="runBtn">최적 배치 계산</button>
+        <span class="status" id="status">준비됨</span>
+      </div>
+
+      <p class="small">설명: 데모는 서버의 /upload와 /optimize, /results/{id}/visualization 엔드포인트와 통신합니다.</p>
+    </div>
+
+    <div class="panel" id="resultPanel" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="big" id="savingPct">--%</div>
+          <div class="small">디스크 절감률 (disk_saving_rate)</div>
+        </div>
+        <div class="compare">
+          <div class="card">
+            <div style="font-size:22px;font-weight:700" id="naiveCount">--</div>
+            <div style="font-size:12px;color:#445">기존 방식 (1 item / disk)</div>
+          </div>
+          <div class="card">
+            <div style="font-size:22px;font-weight:700" id="optCount">--</div>
+            <div style="font-size:12px;color:#445">ZirSave 사용 디스크</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="vizWrap" style="margin-top:14px;">
+        <img id="viz" alt="visualization will appear here" src="" />
+      </div>
+
+      <div style="margin-top:10px;">
+        <div class="small">디스크별 활용률 (disk utilization):</div>
+        <ul id="utilList" class="small"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const runBtn = document.getElementById('runBtn');
+      const status = document.getElementById('status');
+      const resultPanel = document.getElementById('resultPanel');
+      const savingPct = document.getElementById('savingPct');
+      const naiveCountField = document.getElementById('naiveCount');
+      const optCountField = document.getElementById('optCount');
+      const vizImg = document.getElementById('viz');
+      const utilList = document.getElementById('utilList');
+
+      function buildItems(an, pm, mo, br) {
+        const items = [];
+        for (let i=0;i<an;i++) items.push({item_id:'anterior_'+i, w:8.0, h:10.0});
+        for (let i=0;i<pm;i++) items.push({item_id:'premolar_'+i, w:10.0, h:12.0});
+        for (let i=0;i<mo;i++) items.push({item_id:'molar_'+i, w:12.0, h:14.0});
+        for (let i=0;i<br;i++) items.push({item_id:'bridge_'+i, w:14.0, h:16.0});
+        return items;
+      }
+
+      async function postJson(url, obj) {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(obj),
+        });
+        if (!resp.ok) throw new Error('HTTP '+resp.status+' '+await resp.text());
+        return resp.json();
+      }
+
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        status.textContent = '작업중…';
+        resultPanel.style.display = 'none';
+        vizImg.src = '';
+        utilList.innerHTML = '';
+
+        try {
+          // gather inputs
+          const an = parseInt(document.getElementById('countAnterior').value || '0', 10);
+          const pm = parseInt(document.getElementById('countPremolar').value || '0', 10);
+          const mo = parseInt(document.getElementById('countMolar').value || '0', 10);
+          const br = parseInt(document.getElementById('countBridge').value || '0', 10);
+          const disk = parseFloat(document.getElementById('diskDiameter').value || '98');
+
+          const items = buildItems(an, pm, mo, br);
+          const naiveCount = items.length;
+
+          // Send to /upload as JSON disk_config for demo
+          // Server must accept JSON disk_config; if your backend requires multipart FormData, switch to that.
+          const diskConfig = { diameter: disk, thickness: 20.0, demo_items: items };
+
+          // 1) POST /upload -> expect { case_id: "...", n_files: N } or JSON with case_id
+          status.textContent = '업로드 중… (서버로 디스크 설정 전송)';
+          const uploadResp = await postJson('/upload', { disk_config: diskConfig, demo: true });
+          const caseId = uploadResp.case_id || uploadResp.id || uploadResp.case || null;
+          if (!caseId) {
+            // try fallback if server returned different shape
+            throw new Error('upload did not return case_id: ' + JSON.stringify(uploadResp));
+          }
+
+          // 2) POST /optimize?case_id=...  -> returns result_id and disk_saving_rate, utilizations
+          status.textContent = '최적화 실행 중…';
+          const optRespFetch = await fetch('/optimize?case_id=' + encodeURIComponent(caseId), { method: 'POST' });
+          if (!optRespFetch.ok) throw new Error('optimize failed: ' + optRespFetch.status);
+          const optResp = await optRespFetch.json();
+
+          // optResp expected keys: result_id or disk_saving_rate, n_disks, utilizations
+          const resultId = optResp.result_id || optResp.result || optResp.id || optResp.case_id || null;
+          const saving = (typeof optResp.disk_saving_rate !== 'undefined') ? optResp.disk_saving_rate : (typeof optResp.saving !== 'undefined' ? optResp.saving : null);
+          const nDisks = (typeof optResp.n_disks !== 'undefined') ? optResp.n_disks : (optResp.utilizations ? optResp.utilizations.length : null);
+          const utils = (typeof optResp.utilizations !== 'undefined') ? optResp.utilizations : (optResp.util || []);
+
+          // update UI
+          resultPanel.style.display = 'block';
+          savingPct.textContent = (saving !== null) ? Math.round(saving*100) + '% 절감' : '--';
+          naiveCountField.textContent = naiveCount;
+          optCountField.textContent = (typeof nDisks !== 'undefined' && nDisks !== null) ? nDisks : '--';
+          utilList.innerHTML = '';
+          if (utils && utils.length) {
+            for (var i = 0; i < utils.length; i++) {
+              var u = utils[i];
+              var li = document.createElement('li');
+              li.textContent = 'Disk ' + i + ': utilization ' + ( (u*100).toFixed(1) ) + '%';
+              utilList.appendChild(li);
+            }
+          }
+
+          // 3) fetch visualization image
+          // prefer result_id; if optimize returned result_id use that, otherwise use caseId
+          const vizId = resultId || caseId;
+          status.textContent = '시각화 로딩…';
+          const imgResp = await fetch('/results/' + encodeURIComponent(vizId) + '/visualization');
+          if (!imgResp.ok) {
+            throw new Error('visualization failed: ' + imgResp.status);
+          }
+          const blob = await imgResp.blob();
+          vizImg.src = URL.createObjectURL(blob);
+
+          status.textContent = '완료';
+        } catch (err) {
+          console.error(err);
+          status.textContent = '오류: ' + err.message;
+          alert('오류가 발생했습니다: ' + err.message + '\n콘솔을 확인하세요.');
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>

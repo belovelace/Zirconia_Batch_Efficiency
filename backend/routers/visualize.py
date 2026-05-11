@@ -2,11 +2,29 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from backend.routers import optimize as optimize_router
 import io
+import platform
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.font_manager as fm
 import random
+
+
+def _set_korean_font():
+    if platform.system() == 'Windows':
+        plt.rcParams['font.family'] = 'Malgun Gothic'
+    elif platform.system() == 'Darwin':
+        plt.rcParams['font.family'] = 'AppleGothic'
+    else:
+        for name in ('NanumGothic', 'NanumBarunGothic', 'UnDotum', 'Noto Sans CJK KR'):
+            if any(name in f.name for f in fm.fontManager.ttflist):
+                plt.rcParams['font.family'] = name
+                break
+    plt.rcParams['axes.unicode_minus'] = False
+
+
+_set_korean_font()
 
 router = APIRouter(prefix="/results", tags=["results"])
 

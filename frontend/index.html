@@ -123,13 +123,15 @@
     <div class="result-id" id="resultIdLabel"></div>
   </div>
 
-  <!-- 4. Incremental: add more STL to existing disks -->
+  <!-- 4. Incremental: add more STL to existing disks — repeatable -->
   <div class="card" id="addPanel" style="display:none">
-    <h2>4. 기존 디스크에 추가 배치 <span class="badge">Incremental</span></h2>
+    <h2>4. 추가 배치 <span class="badge">반복 가능</span></h2>
     <p style="font-size:13px;color:#556;margin-top:0">
-      위 결과의 디스크에 남은 공간이 있으면 새 STL 파일을 먼저 기존 디스크에 배치하고,
-      공간이 부족하면 자동으로 새 디스크를 추가합니다.
+      STL 파일을 선택하고 추가 배치를 누르세요. 기존 디스크 여유 공간에 먼저 배치하고
+      부족하면 새 디스크를 추가합니다. <strong>배치 불가 항목이 생길 때까지 반복 가능합니다.</strong>
     </p>
+
+    <!-- Upload zone for next batch -->
     <div class="upload-zone" id="addDropZone" onclick="document.getElementById('addStlFiles').click()">
       <div>📂 추가할 STL 파일 선택</div>
       <div class="hint">기존 디스크 여유 공간에 우선 배치됩니다</div>
@@ -140,7 +142,10 @@
       <button class="btn btn-secondary" id="addBtn" disabled>추가 배치 계산</button>
       <span class="status" id="addStatus"></span>
     </div>
+
+    <!-- Latest result summary (updates each round) -->
     <div id="addResultSection" style="display:none; margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#1a3a6b;margin-bottom:8px" id="addRoundLabel"></div>
       <div class="metrics">
         <div class="metric-card">
           <div class="metric-val" id="addSavingPct">--</div>
@@ -154,13 +159,23 @@
           <div class="metric-val" id="addTotalItems">--</div>
           <div class="metric-lbl">총 배치 아이템</div>
         </div>
+        <div class="metric-card" id="unplacedCard" style="display:none">
+          <div class="metric-val" id="unplacedCount" style="color:#c0392b">--</div>
+          <div class="metric-lbl">배치 불가 (공간 부족)</div>
+        </div>
       </div>
       <details open>
-        <summary>디스크별 활용률 (추가 후)</summary>
+        <summary>디스크별 활용률 (최신)</summary>
         <ul class="util-list" id="addUtilList"></ul>
       </details>
       <img id="addViz" alt="추가 배치 시각화" />
       <div class="result-id" id="addResultIdLabel"></div>
+    </div>
+
+    <!-- Cumulative history log -->
+    <div id="addHistory" style="display:none; margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#1a3a6b;margin-bottom:6px">추가 배치 이력</div>
+      <ul class="util-list" id="addHistoryList"></ul>
     </div>
   </div>
 
@@ -177,6 +192,7 @@
 
   let currentResultId = null;
   let currentNaiveCount = 0;
+  let addRound = 0;
 
   // ── Drag-and-drop helpers ──────────────────────────────────────────────────
   function setupDrop(zone, input, listEl) {
@@ -314,7 +330,7 @@
     }
   });
 
-  // ── Incremental: add STL files to existing disks ──────────────────────────
+  // ── Incremental: add STL files to existing disks (repeatable) ───────────
   addBtn.addEventListener('click', async () => {
     if (!currentResultId) { alert('먼저 배치 계산을 실행하세요.'); return; }
     const addFiles = document.getElementById('addStlFiles').files;
@@ -322,7 +338,6 @@
 
     addBtn.disabled = true;
     addStatusEl.textContent = '';
-    document.getElementById('addResultSection').style.display = 'none';
 
     const diskConfig = {
       diameter: parseFloat(document.getElementById('diskDiameter').value),
@@ -330,13 +345,15 @@
       shrinkage_factor: parseFloat(document.getElementById('shrinkage').value),
     };
 
+    const fileNames = Array.from(addFiles).map(f => f.name).join(', ');
+
     try {
-      addStatusEl.textContent = '추가 파일 업로드 중…';
+      addStatusEl.textContent = '업로드 중…';
       const upResp = await uploadFiles(document.getElementById('addStlFiles'), diskConfig);
       const newCaseId = upResp.case_id;
       if (!newCaseId) throw new Error('case_id 반환 안 됨');
 
-      addStatusEl.textContent = '기존 디스크에 추가 배치 중…';
+      addStatusEl.textContent = '추가 배치 계산 중…';
       const incResp = await fetch(
         `/optimize/incremental?result_id=${encodeURIComponent(currentResultId)}&new_case_id=${encodeURIComponent(newCaseId)}`,
         { method: 'POST' }
@@ -344,13 +361,24 @@
       if (!incResp.ok) throw new Error('추가 배치 실패: ' + incResp.status + ' ' + await incResp.text());
       const incData = await incResp.json();
 
-      // Update current result id for further increments
       currentResultId = incData.result_id;
+      addRound += 1;
 
+      // Update latest result panel
+      document.getElementById('addRoundLabel').textContent = `${addRound}회차 추가 배치 결과`;
       document.getElementById('addSavingPct').textContent =
         incData.disk_saving_rate != null ? Math.round(incData.disk_saving_rate * 100) + '%' : '--';
       document.getElementById('addOptCount').textContent = incData.n_disks ?? '--';
       document.getElementById('addTotalItems').textContent = incData.total_items ?? '--';
+
+      const unplacedCount = incData.unplaced_count ?? 0;
+      const unplacedCard = document.getElementById('unplacedCard');
+      if (unplacedCount > 0) {
+        document.getElementById('unplacedCount').textContent = unplacedCount + '개';
+        unplacedCard.style.display = 'block';
+      } else {
+        unplacedCard.style.display = 'none';
+      }
 
       const addUtilList = document.getElementById('addUtilList');
       addUtilList.innerHTML = '';
@@ -362,19 +390,33 @@
 
       addStatusEl.textContent = '시각화 로딩…';
       await fetchViz(currentResultId, document.getElementById('addViz'));
-
       document.getElementById('addResultIdLabel').textContent = 'result_id: ' + currentResultId;
       document.getElementById('addResultSection').style.display = 'block';
-      addStatusEl.textContent = '완료 ✓';
 
-      // Reset add form for another round
+      // Append to history log
+      const historyEl = document.getElementById('addHistory');
+      const historyList = document.getElementById('addHistoryList');
+      historyEl.style.display = 'block';
+      const li = document.createElement('li');
+      const unplacedNote = unplacedCount > 0
+        ? ` ⚠ 배치 불가 ${unplacedCount}개 (공간 부족)`
+        : ' ✓';
+      li.innerHTML = `<strong>${addRound}회차</strong> — ${fileNames} → 디스크 ${incData.n_disks}개, 절감률 ${Math.round((incData.disk_saving_rate ?? 0) * 100)}%${unplacedNote}`;
+      historyList.appendChild(li);
+
+      if (unplacedCount > 0) {
+        addStatusEl.textContent = `완료 — ${unplacedCount}개 배치 불가 (디스크 공간 부족)`;
+      } else {
+        addStatusEl.textContent = '완료 ✓ — 파일을 더 추가할 수 있습니다';
+      }
+
+      // Reset file input only — keep form open for next round
       document.getElementById('addStlFiles').value = '';
-      document.getElementById('addFileList').textContent = '선택된 파일 없음';
+      document.getElementById('addFileList').textContent = '파일을 선택하면 다음 배치를 시작합니다';
       addBtn.disabled = true;
     } catch (err) {
       addStatusEl.textContent = '오류: ' + err.message;
       console.error(err);
-    } finally {
       addBtn.disabled = false;
     }
   });

@@ -99,6 +99,7 @@ async def optimize(case_id: str):
             "n_disks": len(disks),
             "utilizations": utilizations,
             "shrinkage_factor": shrinkage_factor,
+            "unplaced_count": len(placement.get("unplaced", [])),
         }
     except HTTPException:
         raise
@@ -153,6 +154,7 @@ async def optimize_incremental(result_id: str, new_case_id: str):
             "utilizations": utilizations,
             "shrinkage_factor": shrinkage_factor,
             "total_items": total_items,
+            "unplaced_count": len(placement.get("unplaced", [])),
         }
     except HTTPException:
         raise
